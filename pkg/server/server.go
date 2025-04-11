@@ -112,6 +112,8 @@ func (s *Server) HandleSubscribe(c echo.Context) error {
 	}
 	defer ws.Close()
 
+	writeWait := 10 * time.Second
+
 	log := slog.With("source", "server_handle_subscribe", "socket_addr", ws.RemoteAddr().String(), "real_ip", subIP)
 
 	sub, err := s.AddSubscriber(ws, subIP, subscriberOpts)
@@ -143,6 +145,8 @@ func (s *Server) HandleSubscribe(c echo.Context) error {
 					cancel()
 					return
 				}
+			case websocket.PongMessage:
+				log.Debug("received pong message from client")
 			case websocket.CloseMessage:
 				log.Info("received close message from client")
 				cancel()
@@ -241,6 +245,9 @@ func (s *Server) HandleSubscribe(c echo.Context) error {
 	}
 
 	// Read events from the outbox and send them to the subscriber
+	pingPeriod := 30 * time.Second
+	t := time.NewTicker(pingPeriod)
+	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -252,6 +259,8 @@ func (s *Server) HandleSubscribe(c echo.Context) error {
 				log.Error("failed to wait for rate limiter", "error", err)
 				return fmt.Errorf("failed to wait for rate limiter: %w", err)
 			}
+
+			ws.SetWriteDeadline(time.Now().Add(writeWait))
 
 			// When compression is enabled, the msg is a zstd compressed message
 			if compress {
@@ -265,6 +274,12 @@ func (s *Server) HandleSubscribe(c echo.Context) error {
 			// Otherwise, the msg is serialized JSON
 			if err := sub.WriteMessage(websocket.TextMessage, *msg); err != nil {
 				log.Error("failed to write message to websocket", "error", err)
+				return nil
+			}
+		case <-t.C:
+			ws.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := sub.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Error("failed to write ping to websocket", "error", err)
 				return nil
 			}
 		}

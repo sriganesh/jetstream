@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -72,7 +73,7 @@ func emitToSubscriber(ctx context.Context, log *slog.Logger, sub *Subscriber, ti
 
 	if playback {
 		// Copy the event bytes so the playback iterator can reuse the buffer
-		evtBytes = append([]byte{}, evtBytes...)
+		evtBytes = slices.Clone(evtBytes)
 		select {
 		case <-ctx.Done():
 			log.Error("failed to send event to subscriber", "error", ctx.Err(), "subscriber", sub.id)
@@ -213,7 +214,7 @@ func (s *Server) AddSubscriber(ws *websocket.Conn, realIP string, opts *Subscrib
 	sub := Subscriber{
 		ws:                ws,
 		realIP:            realIP,
-		outbox:            make(chan *[]byte, 10_000),
+		outbox:            make(chan *[]byte, 50_000),
 		hello:             make(chan struct{}),
 		id:                s.nextSub,
 		wantedCollections: opts.WantedCollections,
