@@ -52,7 +52,7 @@ func main() {
 			case <-ticker.C:
 				eventsRead := c.EventsRead.Load()
 				bytesRead := c.BytesRead.Load()
-				avgEventSize := bytesRead / eventsRead
+				avgEventSize := bytesRead / max(1, eventsRead)
 				logger.Info("stats", "events_read", eventsRead, "bytes_read", bytesRead, "avg_event_size", avgEventSize)
 			}
 		}
