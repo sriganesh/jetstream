@@ -212,18 +212,19 @@ func (s *Server) AddSubscriber(ws *websocket.Conn, realIP string, opts *Subscrib
 	}
 
 	sub := Subscriber{
-		ws:                ws,
-		realIP:            realIP,
-		outbox:            make(chan *[]byte, 50_000),
-		hello:             make(chan struct{}),
-		id:                s.nextSub,
-		wantedCollections: opts.WantedCollections,
-		wantedDids:        opts.WantedDIDs,
-		cursor:            opts.Cursor,
-		compress:          opts.Compress,
-		deliveredCounter:  eventsDelivered.WithLabelValues(realIP),
-		bytesCounter:      bytesDelivered.WithLabelValues(realIP),
-		rl:                lim,
+		ws:                  ws,
+		realIP:              realIP,
+		outbox:              make(chan *[]byte, 50_000),
+		hello:               make(chan struct{}),
+		id:                  s.nextSub,
+		wantedCollections:   opts.WantedCollections,
+		wantedDids:          opts.WantedDIDs,
+		cursor:              opts.Cursor,
+		compress:            opts.Compress,
+		maxMessageSizeBytes: opts.MaxMessageSizeBytes,
+		deliveredCounter:    eventsDelivered.WithLabelValues(realIP),
+		bytesCounter:        bytesDelivered.WithLabelValues(realIP),
+		rl:                  lim,
 	}
 
 	s.Subscribers[s.nextSub] = &sub
