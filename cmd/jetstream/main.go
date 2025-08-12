@@ -314,12 +314,13 @@ func Jetstream(cctx *cli.Context) error {
 		ctx := context.Background()
 		ctx, cancel := context.WithCancel(ctx)
 		go func() {
-			err = events.HandleRepoStream(ctx, con, scheduler)
+			logger := log.With("source", "repo_stream")
+			err = events.HandleRepoStream(ctx, con, scheduler, logger)
 			if !errors.Is(err, context.Canceled) {
-				log.Info("HandleRepoStream returned unexpectedly, killing jetstream", "error", err)
+				logger.Info("HandleRepoStream returned unexpectedly, killing jetstream", "error", err)
 				close(eventsKill)
 			} else {
-				log.Info("HandleRepoStream closed on context cancel")
+				logger.Info("HandleRepoStream closed on context cancel")
 			}
 			close(repoStreamShutdown)
 		}()
