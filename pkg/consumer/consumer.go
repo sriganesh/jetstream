@@ -362,12 +362,30 @@ func (c *Consumer) RunSequencer(ctx context.Context) error {
 				// Compress the serialized JSON using zstd
 				compBytes := c.encoder.EncodeAll(asJSON, nil)
 
-				// Persist the event to the uncompressed and compressed DBs
-				if err := c.PersistEvent(ctx, e, asJSON, compBytes); err != nil {
-					log.Error("failed to persist event", "error", err)
-					return
+				// Filter out blocked events before persisting
+				shouldPersist := true
+
+				// Block identity and account events
+				if e.Kind == models.EventKindIdentity || e.Kind == models.EventKindAccount {
+					shouldPersist = false
 				}
-				c.persisted.Inc()
+
+				// Block app.bsky.* and chat.bsky.* collections
+				if e.Kind == models.EventKindCommit && e.Commit != nil {
+					collection := e.Commit.Collection
+					if strings.HasPrefix(collection, "app.bsky.") || strings.HasPrefix(collection, "chat.bsky.") {
+						shouldPersist = false
+					}
+				}
+
+				// Persist the event to the uncompressed and compressed DBs (only if not blocked)
+				if shouldPersist {
+					if err := c.PersistEvent(ctx, e, asJSON, compBytes); err != nil {
+						log.Error("failed to persist event", "error", err)
+						return
+					}
+					c.persisted.Inc()
+				}
 
 				// Emit the event to subscribers
 				if err := c.Emit(ctx, e, asJSON, compBytes); err != nil {
