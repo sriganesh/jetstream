@@ -21,6 +21,11 @@ type WantedCollections struct {
 	FullPaths map[string]struct{}
 }
 
+type BlockedCollections struct {
+	Prefixes  []string
+	FullPaths map[string]struct{}
+}
+
 type Subscriber struct {
 	ws          *websocket.Conn
 	conLk       sync.Mutex
@@ -36,6 +41,7 @@ type Subscriber struct {
 
 	// wantedCollections is nil if the subscriber wants all collections
 	wantedCollections   *WantedCollections
+	blockedCollections  *BlockedCollections
 	wantedDids          map[string]struct{}
 	cursor              *int64
 	compress            bool
@@ -211,6 +217,12 @@ func (s *Server) AddSubscriber(ws *websocket.Conn, realIP string, opts *Subscrib
 		s.perIPLimiters[realIP] = lim
 	}
 
+	// Custom fun filter: block app.bsky.* and chat.bsky.*
+	blockedCollections := &BlockedCollections{
+		Prefixes:  []string{"app.bsky.", "chat.bsky."},
+		FullPaths: make(map[string]struct{}),
+	}
+
 	sub := Subscriber{
 		ws:                  ws,
 		realIP:              realIP,
@@ -218,6 +230,7 @@ func (s *Server) AddSubscriber(ws *websocket.Conn, realIP string, opts *Subscrib
 		hello:               make(chan struct{}),
 		id:                  s.nextSub,
 		wantedCollections:   opts.WantedCollections,
+		blockedCollections:  blockedCollections,
 		wantedDids:          opts.WantedDIDs,
 		cursor:              opts.Cursor,
 		compress:            opts.Compress,
@@ -236,6 +249,7 @@ func (s *Server) AddSubscriber(ws *websocket.Conn, realIP string, opts *Subscrib
 		"real_ip", realIP,
 		"id", sub.id,
 		"wantedCollections", opts.WantedCollections,
+		"blockedCollections", blockedCollections.Prefixes,
 		"wantedDids", opts.WantedDIDs,
 		"cursor", opts.Cursor,
 		"compress", opts.Compress,
@@ -258,7 +272,29 @@ func (s *Server) RemoveSubscriber(num int64) {
 
 // WantsCollection returns true if the subscriber wants the given collection
 func (sub *Subscriber) WantsCollection(collection string) bool {
-	if sub.wantedCollections == nil || collection == "" {
+	if collection == "" {
+		return true
+	}
+
+	// Check blocked collections first (if any)
+	if sub.blockedCollections != nil {
+		// Check full paths
+		if len(sub.blockedCollections.FullPaths) > 0 {
+			if _, match := sub.blockedCollections.FullPaths[collection]; match {
+				return false
+			}
+		}
+
+		// Check blocked prefixes
+		for _, prefix := range sub.blockedCollections.Prefixes {
+			if strings.HasPrefix(collection, prefix) {
+				return false
+			}
+		}
+	}
+
+	// If no wanted collections specified, allow everything (except blocked)
+	if sub.wantedCollections == nil {
 		return true
 	}
 
