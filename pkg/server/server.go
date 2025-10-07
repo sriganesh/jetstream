@@ -218,8 +218,8 @@ func (s *Server) HandleSubscribe(c echo.Context) error {
 
 		go func() {
 			for {
-				lastSeq, err := s.Consumer.ReplayEvents(ctx, sub.compress, *sub.cursor, playbackRateLimit, func(ctx context.Context, timeUS int64, did, collection string, getEventBytes func() []byte) error {
-					return emitToSubscriber(ctx, log, sub, timeUS, did, collection, true, getEventBytes)
+				lastSeq, err := s.Consumer.ReplayEvents(ctx, sub.compress, *sub.cursor, playbackRateLimit, func(ctx context.Context, timeUS int64, did, collection, kind string, getEventBytes func() []byte) error {
+					return emitToSubscriber(ctx, log, sub, timeUS, did, collection, kind, true, getEventBytes)
 				})
 				if err != nil {
 					log.Error("failed to replay events", "error", err)
@@ -335,7 +335,7 @@ func (s *Server) Emit(ctx context.Context, e *models.Event, asJSON, compBytes []
 				getEventBytes = getCompressedEvent
 			}
 
-			emitToSubscriber(ctx, log, sub, e.TimeUS, e.Did, collection, false, getEventBytes)
+			emitToSubscriber(ctx, log, sub, e.TimeUS, e.Did, collection, e.Kind, false, getEventBytes)
 		}(sub)
 	}
 

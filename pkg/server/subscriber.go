@@ -26,6 +26,8 @@ type BlockedCollections struct {
 	FullPaths map[string]struct{}
 }
 
+type BlockedKinds map[string]struct{}
+
 type Subscriber struct {
 	ws          *websocket.Conn
 	conLk       sync.Mutex
@@ -42,6 +44,7 @@ type Subscriber struct {
 	// wantedCollections is nil if the subscriber wants all collections
 	wantedCollections   *WantedCollections
 	blockedCollections  *BlockedCollections
+	blockedKinds        BlockedKinds
 	wantedDids          map[string]struct{}
 	cursor              *int64
 	compress            bool
@@ -56,7 +59,14 @@ type Subscriber struct {
 // emitToSubscriber sends an event to a subscriber if the subscriber wants the event
 // It takes a valuer function to get the event bytes so that the caller can avoid
 // unnecessary allocations and/or reading from the playback DB if the subscriber doesn't want the event
-func emitToSubscriber(ctx context.Context, log *slog.Logger, sub *Subscriber, timeUS int64, did, collection string, playback bool, getEventBytes func() []byte) error {
+func emitToSubscriber(ctx context.Context, log *slog.Logger, sub *Subscriber, timeUS int64, did, collection, kind string, playback bool, getEventBytes func() []byte) error {
+	// Check if event kind is blocked
+	if sub.blockedKinds != nil && len(sub.blockedKinds) > 0 {
+		if _, blocked := sub.blockedKinds[kind]; blocked {
+			return nil
+		}
+	}
+
 	if !sub.WantsCollection(collection) {
 		return nil
 	}
@@ -223,6 +233,12 @@ func (s *Server) AddSubscriber(ws *websocket.Conn, realIP string, opts *Subscrib
 		FullPaths: make(map[string]struct{}),
 	}
 
+	// Block identity and account events
+	blockedKinds := BlockedKinds{
+		"identity": struct{}{},
+		"account":  struct{}{},
+	}
+
 	sub := Subscriber{
 		ws:                  ws,
 		realIP:              realIP,
@@ -231,6 +247,7 @@ func (s *Server) AddSubscriber(ws *websocket.Conn, realIP string, opts *Subscrib
 		id:                  s.nextSub,
 		wantedCollections:   opts.WantedCollections,
 		blockedCollections:  blockedCollections,
+		blockedKinds:        blockedKinds,
 		wantedDids:          opts.WantedDIDs,
 		cursor:              opts.Cursor,
 		compress:            opts.Compress,
@@ -250,6 +267,7 @@ func (s *Server) AddSubscriber(ws *websocket.Conn, realIP string, opts *Subscrib
 		"id", sub.id,
 		"wantedCollections", opts.WantedCollections,
 		"blockedCollections", blockedCollections.Prefixes,
+		"blockedKinds", []string{"identity", "account"},
 		"wantedDids", opts.WantedDIDs,
 		"cursor", opts.Cursor,
 		"compress", opts.Compress,
