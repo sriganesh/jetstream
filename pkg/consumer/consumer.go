@@ -9,7 +9,7 @@ import (
 	"time"
 
 	comatproto "github.com/bluesky-social/indigo/api/atproto"
-	"github.com/bluesky-social/indigo/atproto/data"
+	"github.com/bluesky-social/indigo/atproto/atdata"
 	"github.com/bluesky-social/indigo/events"
 	"github.com/bluesky-social/indigo/repo"
 	"github.com/bluesky-social/indigo/repomgr"
@@ -255,7 +255,7 @@ func (c *Consumer) HandleRepoCommit(ctx context.Context, evt *comatproto.SyncSub
 				continue
 			}
 
-			rec, err := data.UnmarshalCBOR(*recB)
+			rec, err := atdata.UnmarshalCBOR(*recB)
 			if err != nil {
 				log.Error("failed to unmarshal record", "error", err)
 				continue
@@ -293,7 +293,7 @@ func (c *Consumer) HandleRepoCommit(ctx context.Context, evt *comatproto.SyncSub
 				continue
 			}
 
-			rec, err := data.UnmarshalCBOR(*recB)
+			rec, err := atdata.UnmarshalCBOR(*recB)
 			if err != nil {
 				log.Error("failed to unmarshal record", "error", err)
 				continue
