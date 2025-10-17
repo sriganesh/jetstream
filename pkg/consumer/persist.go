@@ -148,7 +148,7 @@ func (c *Consumer) TrimEvents(ctx context.Context) error {
 var finalKey = []byte("9700000000000000")
 
 // ReplayEvents replays events from PebbleDB
-func (c *Consumer) ReplayEvents(ctx context.Context, compressed bool, cursor int64, playbackRateLimit float64, emit func(context.Context, int64, string, string, func() []byte) error) (int64, error) {
+func (c *Consumer) ReplayEvents(ctx context.Context, compressed bool, cursor int64, playbackRateLimit float64, emit func(context.Context, int64, string, string, string, string, func() []byte) error) (int64, error) {
 	ctx, span := tracer.Start(ctx, "ReplayEvents")
 	defer span.End()
 
@@ -207,9 +207,26 @@ func (c *Consumer) ReplayEvents(ctx context.Context, compressed bool, cursor int
 			collection = parts[2]
 		}
 
+		// Parse the event to extract operation and kind for filtering
+		// We need to deserialize the event to get these fields
+		var evt models.Event
+		eventBytes := iter.Value()
+		err = json.Unmarshal(eventBytes, &evt)
+		if err != nil {
+			log.Error("failed to unmarshal event", "error", err)
+			// Skip malformed events
+			continue
+		}
+
+		operation := ""
+		kind := evt.Kind
+		if evt.Kind == models.EventKindCommit && evt.Commit != nil {
+			operation = evt.Commit.Operation
+		}
+
 		// Emit the event with the valuer function so the subscriber can decide if it wants to filter it out
 		// without having to read the entire event from the database
-		err = emit(ctx, timeUS, parts[1], collection, iter.Value)
+		err = emit(ctx, timeUS, parts[1], collection, operation, kind, func() []byte { return eventBytes })
 		if err != nil {
 			log.Error("failed to emit event", "error", err)
 			return 0, fmt.Errorf("failed to emit event: %w", err)

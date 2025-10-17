@@ -68,6 +68,10 @@ func (s *Server) HandleSubscribe(c echo.Context) error {
 
 	qWantedCollections := c.Request().URL.Query()["wantedCollections"]
 	qWantedDids := c.Request().URL.Query()["wantedDids"]
+	qWantedOperations := c.Request().URL.Query()["operation"]
+	qWantedKinds := c.Request().URL.Query()["kind"]
+	qExcludeCollections := c.Request().URL.Query()["excludeCollections"]
+	qExcludeDids := c.Request().URL.Query()["excludeDids"]
 
 	qMaxMessageSizeBytes := c.Request().URL.Query().Get("maxMessageSizeBytes")
 	qMaxMessageSizeBytesValue := ParseMaxMessageSizeBytes(qMaxMessageSizeBytes)
@@ -98,7 +102,7 @@ func (s *Server) HandleSubscribe(c echo.Context) error {
 	}
 
 	// Parse the subscriber options
-	subscriberOpts, err := parseSubscriberOptions(ctx, qWantedCollections, qWantedDids, compress, qMaxMessageSizeBytesValue, cursor)
+	subscriberOpts, err := parseSubscriberOptions(ctx, qWantedCollections, qWantedDids, compress, qMaxMessageSizeBytesValue, cursor, qWantedOperations, qWantedKinds, qExcludeCollections, qExcludeDids)
 	if err != nil {
 		c.String(http.StatusBadRequest, err.Error())
 		return err
@@ -176,7 +180,8 @@ func (s *Server) HandleSubscribe(c echo.Context) error {
 					maxMessageSizeBytes := ParseMaxMessageSizeBytes(subOptsUpdate.MaxMessageSizeBytes)
 					// Only WantedCollections and WantedDIDs can be updated after the initial connection
 					// Cursor and Compression settings are fixed for the lifetime of the stream
-					subscriberOpts, err = parseSubscriberOptions(ctx, subOptsUpdate.WantedCollections, subOptsUpdate.WantedDIDs, compress, maxMessageSizeBytes, sub.cursor)
+					// For now, we don't allow updating operation/kind/exclude filters via websocket messages
+					subscriberOpts, err = parseSubscriberOptions(ctx, subOptsUpdate.WantedCollections, subOptsUpdate.WantedDIDs, compress, maxMessageSizeBytes, sub.cursor, nil, nil, nil, nil)
 					if err != nil {
 						log.Error("failed to parse subscriber options", "error", err, "new_opts", subOptsUpdate)
 						sub.Terminate(fmt.Sprintf("failed to parse subscriber options: %v", err))
@@ -218,8 +223,8 @@ func (s *Server) HandleSubscribe(c echo.Context) error {
 
 		go func() {
 			for {
-				lastSeq, err := s.Consumer.ReplayEvents(ctx, sub.compress, *sub.cursor, playbackRateLimit, func(ctx context.Context, timeUS int64, did, collection string, getEventBytes func() []byte) error {
-					return emitToSubscriber(ctx, log, sub, timeUS, did, collection, true, getEventBytes)
+				lastSeq, err := s.Consumer.ReplayEvents(ctx, sub.compress, *sub.cursor, playbackRateLimit, func(ctx context.Context, timeUS int64, did, collection, operation, kind string, getEventBytes func() []byte) error {
+					return emitToSubscriber(ctx, log, sub, timeUS, did, collection, operation, kind, true, getEventBytes)
 				})
 				if err != nil {
 					log.Error("failed to replay events", "error", err)
@@ -303,8 +308,10 @@ func (s *Server) Emit(ctx context.Context, e *models.Event, asJSON, compBytes []
 	bytesEmitted.Add(evtSize)
 
 	collection := ""
+	operation := ""
 	if e.Kind == models.EventKindCommit && e.Commit != nil {
 		collection = e.Commit.Collection
+		operation = e.Commit.Operation
 	}
 
 	// Wrap the valuer functions for more lightweight event filtering
@@ -335,7 +342,7 @@ func (s *Server) Emit(ctx context.Context, e *models.Event, asJSON, compBytes []
 				getEventBytes = getCompressedEvent
 			}
 
-			emitToSubscriber(ctx, log, sub, e.TimeUS, e.Did, collection, false, getEventBytes)
+			emitToSubscriber(ctx, log, sub, e.TimeUS, e.Did, collection, operation, e.Kind, false, getEventBytes)
 		}(sub)
 	}
 

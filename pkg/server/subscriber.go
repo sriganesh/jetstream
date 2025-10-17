@@ -41,6 +41,12 @@ type Subscriber struct {
 	compress            bool
 	maxMessageSizeBytes uint32
 
+	// New filter fields
+	wantedOperations   map[string]struct{} // create, update, delete
+	wantedKinds        map[string]struct{} // commit, identity, account
+	excludeCollections map[string]struct{} // collections to exclude
+	excludeDids        map[string]struct{} // DIDs to exclude
+
 	rl *rate.Limiter
 
 	deliveredCounter prometheus.Counter
@@ -50,7 +56,31 @@ type Subscriber struct {
 // emitToSubscriber sends an event to a subscriber if the subscriber wants the event
 // It takes a valuer function to get the event bytes so that the caller can avoid
 // unnecessary allocations and/or reading from the playback DB if the subscriber doesn't want the event
-func emitToSubscriber(ctx context.Context, log *slog.Logger, sub *Subscriber, timeUS int64, did, collection string, playback bool, getEventBytes func() []byte) error {
+func emitToSubscriber(ctx context.Context, log *slog.Logger, sub *Subscriber, timeUS int64, did, collection, operation, kind string, playback bool, getEventBytes func() []byte) error {
+	// Check kind filter
+	if len(sub.wantedKinds) > 0 {
+		if _, ok := sub.wantedKinds[kind]; !ok {
+			return nil
+		}
+	}
+
+	// Check operation filter (only for commit events)
+	if kind == "commit" && len(sub.wantedOperations) > 0 {
+		if _, ok := sub.wantedOperations[operation]; !ok {
+			return nil
+		}
+	}
+
+	// Check DID exclusion filter
+	if _, excluded := sub.excludeDids[did]; excluded {
+		return nil
+	}
+
+	// Check collection exclusion filter
+	if _, excluded := sub.excludeCollections[collection]; excluded {
+		return nil
+	}
+
 	if !sub.WantsCollection(collection) {
 		return nil
 	}
@@ -142,12 +172,17 @@ type SubscriberOptions struct {
 	MaxMessageSizeBytes uint32
 	Compress            bool
 	Cursor              *int64
+	// New filter fields
+	WantedOperations   map[string]struct{}
+	WantedKinds        map[string]struct{}
+	ExcludeCollections map[string]struct{}
+	ExcludeDIDs        map[string]struct{}
 }
 
 // ErrInvalidOptions is returned when the subscriber options are invalid
 var ErrInvalidOptions = fmt.Errorf("invalid subscriber options")
 
-func parseSubscriberOptions(ctx context.Context, wantedCollectionsProvided, wantedDidsProvided []string, compress bool, maxMessageSizeBytes uint32, cursor *int64) (*SubscriberOptions, error) {
+func parseSubscriberOptions(ctx context.Context, wantedCollectionsProvided, wantedDidsProvided []string, compress bool, maxMessageSizeBytes uint32, cursor *int64, wantedOperations, wantedKinds, excludeCollections, excludeDids []string) (*SubscriberOptions, error) {
 	ctx, span := tracer.Start(ctx, "parseSubscriberOptions")
 	defer span.End()
 
@@ -192,12 +227,76 @@ func parseSubscriberOptions(ctx context.Context, wantedCollectionsProvided, want
 		return nil, fmt.Errorf("%w: too many wanted collections", ErrInvalidOptions)
 	}
 
+	// Parse wanted operations (create, update, delete)
+	operationsMap := make(map[string]struct{})
+	validOperations := map[string]bool{"create": true, "update": true, "delete": true}
+	for _, op := range wantedOperations {
+		if !validOperations[op] {
+			return nil, fmt.Errorf("%w: invalid operation: %s", ErrInvalidOptions, op)
+		}
+		operationsMap[op] = struct{}{}
+	}
+
+	// Parse wanted kinds (commit, identity, account)
+	kindsMap := make(map[string]struct{})
+	validKinds := map[string]bool{"commit": true, "identity": true, "account": true}
+	for _, k := range wantedKinds {
+		if !validKinds[k] {
+			return nil, fmt.Errorf("%w: invalid kind: %s", ErrInvalidOptions, k)
+		}
+		kindsMap[k] = struct{}{}
+	}
+
+	// Parse exclude collections
+	excludeColMap := make(map[string]struct{})
+	for _, col := range excludeCollections {
+		// Validate collection syntax
+		if strings.HasSuffix(col, ".*") {
+			// For prefixes, validate the prefix part
+			prefix := strings.TrimSuffix(col, ".*")
+			if _, err := syntax.ParseNSID(prefix + ".dummy"); err != nil {
+				return nil, fmt.Errorf("%w: invalid exclude collection: %s", ErrInvalidOptions, col)
+			}
+			excludeColMap[col] = struct{}{}
+		} else {
+			// For full paths, validate as NSID
+			if _, err := syntax.ParseNSID(col); err != nil {
+				return nil, fmt.Errorf("%w: invalid exclude collection: %s", ErrInvalidOptions, col)
+			}
+			excludeColMap[col] = struct{}{}
+		}
+	}
+
+	// Parse exclude DIDs
+	excludeDIDMap := make(map[string]struct{})
+	for _, d := range excludeDids {
+		did, err := syntax.ParseDID(d)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid exclude DID: %s", ErrInvalidOptions, d)
+		}
+		excludeDIDMap[did.String()] = struct{}{}
+	}
+
+	// Reject requests with too many exclude DIDs
+	if len(excludeDIDMap) > 10_000 {
+		return nil, fmt.Errorf("%w: too many exclude DIDs", ErrInvalidOptions)
+	}
+
+	// Reject requests with too many exclude collections
+	if len(excludeColMap) > 100 {
+		return nil, fmt.Errorf("%w: too many exclude collections", ErrInvalidOptions)
+	}
+
 	return &SubscriberOptions{
 		WantedCollections:   wantedCol,
 		WantedDIDs:          didMap,
 		Compress:            compress,
 		MaxMessageSizeBytes: maxMessageSizeBytes,
 		Cursor:              cursor,
+		WantedOperations:    operationsMap,
+		WantedKinds:         kindsMap,
+		ExcludeCollections:  excludeColMap,
+		ExcludeDIDs:         excludeDIDMap,
 	}, nil
 }
 
@@ -222,6 +321,10 @@ func (s *Server) AddSubscriber(ws *websocket.Conn, realIP string, opts *Subscrib
 		cursor:              opts.Cursor,
 		compress:            opts.Compress,
 		maxMessageSizeBytes: opts.MaxMessageSizeBytes,
+		wantedOperations:    opts.WantedOperations,
+		wantedKinds:         opts.WantedKinds,
+		excludeCollections:  opts.ExcludeCollections,
+		excludeDids:         opts.ExcludeDIDs,
 		deliveredCounter:    eventsDelivered.WithLabelValues(realIP),
 		bytesCounter:        bytesDelivered.WithLabelValues(realIP),
 		rl:                  lim,
@@ -287,6 +390,11 @@ func (s *Subscriber) UpdateOptions(opts *SubscriberOptions) {
 	s.wantedDids = opts.WantedDIDs
 	s.cursor = opts.Cursor
 	s.compress = opts.Compress
+	s.maxMessageSizeBytes = opts.MaxMessageSizeBytes
+	s.wantedOperations = opts.WantedOperations
+	s.wantedKinds = opts.WantedKinds
+	s.excludeCollections = opts.ExcludeCollections
+	s.excludeDids = opts.ExcludeDIDs
 }
 
 // Terminate sends a close message to the subscriber
