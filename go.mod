@@ -5,7 +5,7 @@ go 1.25
 toolchain go1.25.1
 
 require (
-	github.com/bluesky-social/indigo v0.0.0-20251009212240-20524de167fe
+	github.com/bluesky-social/indigo v0.0.0-20260120225912-12d69fa4d209
 	github.com/cockroachdb/pebble v1.1.2
 	github.com/goccy/go-json v0.10.2
 	github.com/gorilla/websocket v1.5.1
@@ -13,7 +13,7 @@ require (
 	github.com/labstack/echo/v4 v4.11.3
 	github.com/labstack/gommon v0.4.1
 	github.com/prometheus/client_golang v1.19.1
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	github.com/urfave/cli/v2 v2.26.0
 	go.opentelemetry.io/otel v1.21.0
 	go.uber.org/atomic v1.11.0
@@ -25,7 +25,6 @@ require (
 	github.com/DataDog/zstd v1.5.5 // indirect
 	github.com/RussellLuo/slidingwindow v0.0.0-20200528002341-535bb99d338b // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/carlmjohnson/versioninfo v0.22.5 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cockroachdb/errors v1.11.3 // indirect
 	github.com/cockroachdb/fifo v0.0.0-20240606204812-0bbfbd93a7ce // indirect
@@ -34,6 +33,7 @@ require (
 	github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.3 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/earthboundkid/versioninfo/v2 v2.24.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/getsentry/sentry-go v0.28.0 // indirect
 	github.com/go-logr/logr v1.4.1 // indirect
