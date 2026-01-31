@@ -393,3 +393,24 @@ func (c *Consumer) Shutdown() {
 		c.logger.Info("sequencer shutdown complete")
 	}
 }
+
+// Healthcheck checks if the consumer is healthy.
+// Returns an error if the database is inaccessible or events have stopped flowing.
+func (c *Consumer) Healthcheck(ctx context.Context, maxStaleness time.Duration) error {
+	// Check if we can read from the database
+	_, closer, err := c.UncompressedDB.Get(cursorKey)
+	if err != nil && err != pebble.ErrNotFound {
+		return fmt.Errorf("database error: %w", err)
+	}
+	if closer != nil {
+		closer.Close()
+	}
+
+	// Check if events are flowing (skip check if we haven't processed any events yet)
+	seq, lastProcessed := c.Progress.Get()
+	if seq > 0 && time.Since(lastProcessed) > maxStaleness {
+		return fmt.Errorf("event flow stale: last event processed %s ago", time.Since(lastProcessed).Round(time.Second))
+	}
+
+	return nil
+}

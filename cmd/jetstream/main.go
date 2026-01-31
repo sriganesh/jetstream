@@ -26,6 +26,12 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+// HealthStatus represents the health check response
+type HealthStatus struct {
+	Status  string `json:"status"`
+	Message string `json:"msg,omitempty"`
+}
+
 func main() {
 	app := cli.App{
 		Name:    "jetstream",
@@ -227,6 +233,16 @@ func Jetstream(cctx *cli.Context) error {
 		return c.String(http.StatusOK, "Welcome to Jetstream")
 	})
 	e.GET("/subscribe", s.HandleSubscribe)
+	e.GET("/xrpc/_health", func(ctx echo.Context) error {
+		if err := c.Healthcheck(ctx.Request().Context(), 30*time.Second); err != nil {
+			log.Error("healthcheck failed", "error", err)
+			return ctx.JSON(http.StatusInternalServerError, HealthStatus{
+				Status:  "error",
+				Message: err.Error(),
+			})
+		}
+		return ctx.JSON(http.StatusOK, HealthStatus{Status: "ok"})
+	})
 
 	jetServer := &http.Server{
 		Addr:    cctx.String("listen-addr"),
