@@ -89,6 +89,12 @@ func main() {
 			EnvVars: []string{"JETSTREAM_MAX_SUB_RATE"},
 		},
 		&cli.Int64Flag{
+			Name:    "sub-outbox-size",
+			Usage:   "channel depth (event count) per subscriber",
+			Value:   50_000,
+			EnvVars: []string{"JETSTREAM_SUB_OUTBOX_SIZE"},
+		},
+		&cli.Int64Flag{
 			Name:    "override-relay-cursor",
 			Usage:   "override cursor to start from, if not set will start from the last cursor in the database, if no cursor in the database will start from live",
 			Value:   -1,
@@ -124,7 +130,7 @@ func Jetstream(cctx *cli.Context) error {
 		return fmt.Errorf("failed to parse ws-url: %w", err)
 	}
 
-	s, err := server.NewServer(cctx.Float64("max-sub-rate"))
+	s, err := server.NewServer(cctx.Float64("max-sub-rate"), cctx.Int64("sub-outbox-size"))
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
