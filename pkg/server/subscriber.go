@@ -214,7 +214,7 @@ func (s *Server) AddSubscriber(ws *websocket.Conn, realIP string, opts *Subscrib
 	sub := Subscriber{
 		ws:                  ws,
 		realIP:              realIP,
-		outbox:              make(chan *[]byte, 50_000),
+		outbox:              make(chan *[]byte, s.subOutboxSize),
 		hello:               make(chan struct{}),
 		id:                  s.nextSub,
 		wantedCollections:   opts.WantedCollections,
