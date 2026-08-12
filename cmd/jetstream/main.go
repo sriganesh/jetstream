@@ -401,11 +401,6 @@ func Jetstream(cctx *cli.Context) error {
 		log.Error("failed to close pebble db", "error", err)
 	}
 
-	err = c.CompressedDB.Close()
-	if err != nil {
-		log.Error("failed to close compressed pebble db", "error", err)
-	}
-
 	log.Info("shut down successfully")
 
 	return nil

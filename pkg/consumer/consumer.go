@@ -29,7 +29,6 @@ type Consumer struct {
 	Progress          *Progress
 	Emit              func(context.Context, *models.Event, []byte, []byte) error
 	UncompressedDB    *pebble.DB
-	CompressedDB      *pebble.DB
 	encoder           *zstd.Encoder
 	EventTTL          time.Duration
 	logger            *slog.Logger
@@ -59,12 +58,6 @@ func NewConsumer(
 		return nil, fmt.Errorf("failed to open db: %w", err)
 	}
 
-	cDBPath := dataDir + "/jetstream.compressed.db"
-	cDB, err := pebble.Open(cDBPath, &pebble.Options{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to open db: %w", err)
-	}
-
 	log := logger.With("component", "consumer")
 
 	clock, err := monotonic.NewClock(time.Microsecond)
@@ -86,7 +79,6 @@ func NewConsumer(
 		EventTTL:          eventTTL,
 		Emit:              emit,
 		UncompressedDB:    uDB,
-		CompressedDB:      cDB,
 		encoder:           encoder,
 		logger:            log,
 		clock:             clock,

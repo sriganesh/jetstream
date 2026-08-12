@@ -107,13 +107,6 @@ func (c *Consumer) PersistEvent(ctx context.Context, evt *models.Event, asJSON, 
 		return fmt.Errorf("failed to write event to pebble: %w", err)
 	}
 
-	// Write the compressed event to the compressed DB
-	err = c.CompressedDB.Set(key, compBytes, pebble.NoSync)
-	if err != nil {
-		log.Error("failed to write compressed event to pebble", "error", err)
-		return fmt.Errorf("failed to write compressed event to pebble: %w", err)
-	}
-
 	return nil
 }
 
@@ -132,13 +125,6 @@ func (c *Consumer) TrimEvents(ctx context.Context) error {
 	if err != nil {
 		log.Error("failed to delete old events", "error", err)
 		return fmt.Errorf("failed to delete old events: %w", err)
-	}
-
-	// Delete all numeric keys older than the trim key in the compressed DB
-	err = c.CompressedDB.DeleteRange([]byte("0"), trimKey, pebble.Sync)
-	if err != nil {
-		log.Error("failed to delete old compressed events", "error", err)
-		return fmt.Errorf("failed to delete old compressed events: %w", err)
 	}
 
 	return nil
@@ -165,11 +151,10 @@ func (c *Consumer) ReplayEvents(ctx context.Context, compressed bool, cursor int
 		UpperBound: finalKey,
 	}
 
-	if compressed {
-		iter, err = c.CompressedDB.NewIterWithContext(ctx, iterOptions)
-	} else {
-		iter, err = c.UncompressedDB.NewIterWithContext(ctx, iterOptions)
-	}
+	// Events are persisted once, as JSON. Subscribers that asked for zstd get
+	// their events compressed on the fly below: a little CPU on replay in
+	// exchange for roughly half the disk, and it keeps `kind` parseable here.
+	iter, err = c.UncompressedDB.NewIterWithContext(ctx, iterOptions)
 	if err != nil {
 		log.Error("failed to create iterator", "error", err)
 		return 0, fmt.Errorf("failed to create iterator: %w", err)
@@ -217,7 +202,14 @@ func (c *Consumer) ReplayEvents(ctx context.Context, compressed bool, cursor int
 
 		// Emit the event with the valuer function so the subscriber can decide if it wants to filter it out
 		// without having to read the entire event from the database
-		err = emit(ctx, timeUS, parts[1], collection, kind, iter.Value)
+		valuer := iter.Value
+		if compressed {
+			// pebble reuses its value buffer, so copy before deferring the read
+			raw := append([]byte(nil), eventBytes...)
+			valuer = func() []byte { return c.encoder.EncodeAll(raw, nil) }
+		}
+
+		err = emit(ctx, timeUS, parts[1], collection, kind, valuer)
 		if err != nil {
 			log.Error("failed to emit event", "error", err)
 			return 0, fmt.Errorf("failed to emit event: %w", err)
