@@ -235,6 +235,19 @@ func (s *Server) HandleSubscribe(c echo.Context) error {
 				serverLastSeq := s.GetSeq()
 				log.Info("finished replaying events", "replay_last_time", time.UnixMicro(lastSeq), "server_last_time", time.UnixMicro(serverLastSeq))
 
+				// Nothing was replayed at all. Either the cursor is past the end
+				// of the stored window or every candidate was filtered out, and
+				// in both cases there is nothing to catch up on - go live.
+				//
+				// Without this the loop below advances the cursor to 1 and
+				// rescans the whole database forever, never cutting over, so the
+				// socket stays open having sent nothing. That is how a single
+				// subscriber used to pin a core indefinitely.
+				if lastSeq == 0 {
+					log.Info("no events replayed, cutting over to live tail", "cursor", *sub.cursor)
+					break
+				}
+
 				// If last event replayed is close enough to the last live event, start live tailing
 				if lastSeq > serverLastSeq-(cutoverThresholdUS/2) {
 					break

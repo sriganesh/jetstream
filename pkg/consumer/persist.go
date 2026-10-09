@@ -165,6 +165,27 @@ func (c *Consumer) ReplayEvents(ctx context.Context, compressed bool, cursor int
 		UpperBound: finalKey,
 	}
 
+	// Drive iteration from the database whose payload this subscriber will be
+	// sent: zstd frames for compress=true, JSON otherwise. The JSON copy is then
+	// read by key only to pull out kind and operation for filtering.
+	//
+	// That read used to be iter.Value() regardless of which database was being
+	// iterated. On the compressed side that is a zstd frame, so every record
+	// failed to unmarshal and was skipped: a subscriber passing both cursor and
+	// compress=true received nothing while the server spun an unbounded replay
+	// loop. The server still never decompresses an event.
+	//
+	// PersistEvent writes the JSON copy before the compressed one, so a key in
+	// the compressed database always has its JSON copy. The lookup below only
+	// misses at the old end of the window, where TrimEvents removes the JSON
+	// copy first.
+	//
+	// Replay relies on events being persisted in timestamp order, one at a time,
+	// as RunSequencer does. An event still being written is then always the
+	// newest key, so not seeing it never moves the cursor past it - the next
+	// pass or the live tail delivers it. If persistence were ever parallelised,
+	// an earlier event could be missing while a later one is present, and replay
+	// would skip it in either database.
 	if compressed {
 		iter, err = c.CompressedDB.NewIterWithContext(ctx, iterOptions)
 	} else {
@@ -210,8 +231,22 @@ func (c *Consumer) ReplayEvents(ctx context.Context, compressed bool, cursor int
 		// Parse the event to extract operation and kind for filtering
 		// We need to deserialize the event to get these fields
 		var evt models.Event
-		eventBytes := iter.Value()
-		err = json.Unmarshal(eventBytes, &evt)
+		if compressed {
+			jsonBytes, closer, gerr := c.UncompressedDB.Get(iter.Key())
+			if gerr == pebble.ErrNotFound {
+				// TrimEvents deletes the JSON copy before the compressed one, so
+				// at the old end of the window an event can briefly exist only in
+				// compressed form. It is being expired; skip it.
+				continue
+			}
+			if gerr != nil {
+				return 0, fmt.Errorf("failed to read uncompressed event %q: %w", key, gerr)
+			}
+			err = json.Unmarshal(jsonBytes, &evt)
+			closer.Close()
+		} else {
+			err = json.Unmarshal(iter.Value(), &evt)
+		}
 		if err != nil {
 			log.Error("failed to unmarshal event", "error", err)
 			// Skip malformed events
@@ -224,9 +259,13 @@ func (c *Consumer) ReplayEvents(ctx context.Context, compressed bool, cursor int
 			operation = evt.Commit.Operation
 		}
 
+		// The payload matching the subscriber: the zstd frame when iterating the
+		// compressed database, the JSON otherwise.
+		payload := iter.Value()
+
 		// Emit the event with the valuer function so the subscriber can decide if it wants to filter it out
 		// without having to read the entire event from the database
-		err = emit(ctx, timeUS, parts[1], collection, operation, kind, func() []byte { return eventBytes })
+		err = emit(ctx, timeUS, parts[1], collection, operation, kind, func() []byte { return payload })
 		if err != nil {
 			log.Error("failed to emit event", "error", err)
 			return 0, fmt.Errorf("failed to emit event: %w", err)
