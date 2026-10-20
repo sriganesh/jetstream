@@ -2,7 +2,7 @@ module github.com/bluesky-social/jetstream
 
 go 1.26.0
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
 	github.com/bluesky-social/indigo v0.0.0-20260120225912-12d69fa4d209
