@@ -26,6 +26,7 @@ type Server struct {
 	nextSub       int64
 	Consumer      *consumer.Consumer
 	maxSubRate    float64
+	subOutboxSize int64
 	seq           int64
 	perIPLimiters map[string]*rate.Limiter
 }
@@ -40,10 +41,11 @@ var maxConcurrentEmits = int64(100)
 var cutoverThresholdUS = int64(1_000_000)
 var tracer = otel.Tracer("jetstream-server")
 
-func NewServer(maxSubRate float64) (*Server, error) {
+func NewServer(maxSubRate float64, subOutboxSize int64) (*Server, error) {
 	s := Server{
 		Subscribers:   make(map[int64]*Subscriber),
 		maxSubRate:    maxSubRate,
+		subOutboxSize: subOutboxSize,
 		perIPLimiters: make(map[string]*rate.Limiter),
 	}
 

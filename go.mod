@@ -2,15 +2,15 @@ module github.com/bluesky-social/jetstream
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	github.com/bluesky-social/indigo v0.0.0-20260120225912-12d69fa4d209
 	github.com/cockroachdb/pebble v1.1.2
 	github.com/goccy/go-json v0.10.2
-	github.com/gorilla/websocket v1.5.3
-	github.com/klauspost/compress v1.17.9
-	github.com/labstack/echo/v4 v4.16.0
+	github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4
+	github.com/klauspost/compress v1.20.2
+	github.com/labstack/echo/v4 v4.16.3
 	github.com/labstack/gommon v0.5.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/stretchr/testify v1.11.1
